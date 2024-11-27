@@ -1137,6 +1137,150 @@ func TestEncoding(t *testing.T) {
 	})
 }
 
+func TestCustomRoundTripper(t *testing.T) {
+	set := exportertest.NewNopSettings()
+	set.BuildInfo.Description = "Collector"
+	set.BuildInfo.Version = "1.2.3test"
+
+	tests := []struct {
+		name               string
+		customRoundTripper func(next http.RoundTripper) (http.RoundTripper, error)
+	}{
+		{
+			name:               "proto_encoding",
+			customRoundTripper: func(rt http.RoundTripper) (http.RoundTripper, error) { return rt, nil },
+		},
+	}
+
+	t.Run("traces", func(t *testing.T) {
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				srv := createBackend("/v1/traces", func(writer http.ResponseWriter, request *http.Request) {
+					writer.WriteHeader(http.StatusOK)
+				})
+				defer srv.Close()
+
+				cfg := &Config{
+					Encoding:           EncodingProto,
+					TracesEndpoint:     srv.URL + "/v1/traces",
+					CustomRoundTripper: tt.customRoundTripper,
+				}
+				exp, err := createTraces(context.Background(), set, cfg)
+				require.NoError(t, err)
+
+				// start the exporter
+				err = exp.Start(context.Background(), componenttest.NewNopHost())
+				require.NoError(t, err)
+				t.Cleanup(func() {
+					require.NoError(t, exp.Shutdown(context.Background()))
+				})
+
+				// generate data
+				traces := ptrace.NewTraces()
+				err = exp.ConsumeTraces(context.Background(), traces)
+				require.NoError(t, err)
+			})
+		}
+	})
+
+	t.Run("metrics", func(t *testing.T) {
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				srv := createBackend("/v1/metrics", func(writer http.ResponseWriter, request *http.Request) {
+					writer.WriteHeader(http.StatusOK)
+				})
+				defer srv.Close()
+
+				cfg := &Config{
+					Encoding:           EncodingProto,
+					MetricsEndpoint:    srv.URL + "/v1/metrics",
+					CustomRoundTripper: tt.customRoundTripper,
+				}
+				exp, err := createMetrics(context.Background(), set, cfg)
+				require.NoError(t, err)
+
+				// start the exporter
+				err = exp.Start(context.Background(), componenttest.NewNopHost())
+				require.NoError(t, err)
+				t.Cleanup(func() {
+					require.NoError(t, exp.Shutdown(context.Background()))
+				})
+
+				// generate data
+				metrics := pmetric.NewMetrics()
+				err = exp.ConsumeMetrics(context.Background(), metrics)
+				require.NoError(t, err)
+			})
+		}
+	})
+
+	t.Run("logs", func(t *testing.T) {
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				srv := createBackend("/v1/logs", func(writer http.ResponseWriter, request *http.Request) {
+					writer.WriteHeader(http.StatusOK)
+				})
+				defer srv.Close()
+
+				cfg := &Config{
+					Encoding:           EncodingProto,
+					LogsEndpoint:       srv.URL + "/v1/logs",
+					CustomRoundTripper: tt.customRoundTripper,
+				}
+				exp, err := createLogs(context.Background(), set, cfg)
+				require.NoError(t, err)
+
+				// start the exporter
+				err = exp.Start(context.Background(), componenttest.NewNopHost())
+				require.NoError(t, err)
+				t.Cleanup(func() {
+					require.NoError(t, exp.Shutdown(context.Background()))
+				})
+
+				// generate data
+				logs := plog.NewLogs()
+				err = exp.ConsumeLogs(context.Background(), logs)
+				require.NoError(t, err)
+
+				srv.Close()
+			})
+		}
+	})
+
+	t.Run("profiles", func(t *testing.T) {
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				srv := createBackend("/v1development/profiles", func(writer http.ResponseWriter, request *http.Request) {
+					writer.WriteHeader(http.StatusOK)
+				})
+				defer srv.Close()
+
+				cfg := &Config{
+					Encoding: EncodingProto,
+					ClientConfig: confighttp.ClientConfig{
+						Endpoint: srv.URL,
+					},
+					CustomRoundTripper: tt.customRoundTripper,
+				}
+				exp, err := createProfiles(context.Background(), set, cfg)
+				require.NoError(t, err)
+
+				// start the exporter
+				err = exp.Start(context.Background(), componenttest.NewNopHost())
+				require.NoError(t, err)
+				t.Cleanup(func() {
+					require.NoError(t, exp.Shutdown(context.Background()))
+				})
+
+				// generate data
+				profiles := pprofile.NewProfiles()
+				err = exp.ConsumeProfiles(context.Background(), profiles)
+				require.NoError(t, err)
+			})
+		}
+	})
+}
+
 func createBackend(endpoint string, handler func(writer http.ResponseWriter, request *http.Request)) *httptest.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc(endpoint, handler)

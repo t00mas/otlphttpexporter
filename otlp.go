@@ -87,6 +87,14 @@ func (e *baseExporter) start(ctx context.Context, host component.Host) error {
 	if err != nil {
 		return err
 	}
+
+	if e.config.CustomRoundTripper != nil {
+		client.Transport, err = e.config.CustomRoundTripper(client.Transport)
+		if err != nil {
+			return err
+		}
+	}
+
 	e.client = client
 	return nil
 }
